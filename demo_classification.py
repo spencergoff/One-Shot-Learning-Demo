@@ -6,7 +6,7 @@ from scipy.spatial.distance import cdist
 
 
 # Parameters
-nrun = 20  # Number of classification runs
+nrun = 1 #20  # Number of classification runs
 path_to_script_dir = os.path.dirname(os.path.realpath(__file__))
 path_to_all_runs = os.path.join(path_to_script_dir, 'all_runs')
 fname_label = 'class_labels.txt'  # Where class labels are stored for each run
