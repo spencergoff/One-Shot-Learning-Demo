@@ -54,13 +54,14 @@ def lambda_handler(event, context):
     #TODO Delete image from S3 when finished
 
     file.close()
-    return 'All Clear!'
+    return the_answer_is(classification_result)
 
 # Parameters
 nrun = 1 #Number of classification runs
 path_to_script_dir = '/tmp/' #os.path.dirname(os.path.realpath(__file__)) #gets the directory of this file
 path_to_all_runs = os.path.join(path_to_script_dir, 'all_runs')
 fname_label = 'class_labels.txt'  # Where class labels are stored for each run
+classification_result = '' #this is the result of an image being classified
 
 def classification_run(folder, f_load, f_cost, ftype='cost'):
     # Compute error rate for one run of one-shot classification
@@ -78,6 +79,7 @@ def classification_run(folder, f_load, f_cost, ftype='cost'):
     #  perror : percent errors (0 to 100% error)
     #
     assert ftype in {'cost', 'score'}
+    global classification_result
 
     with open(os.path.join(path_to_all_runs, folder, fname_label)) as f:
         pairs = [line.split() for line in f.readlines()]
@@ -113,6 +115,7 @@ def classification_run(folder, f_load, f_cost, ftype='cost'):
     #print('\n y_hats: ' + str(y_hats) + '\n')
     i = 0
     for y_hat, answer in zip(y_hats, answers_files):
+        classification_result = str(train_files[y_hat])
         print('\nImage: ' + str(test_files[i]) +
                 '\nModel\'s Classification: ' + str(train_files[y_hat]) +
                 '\nCorrect Classification: ' + str(answer))
@@ -125,7 +128,6 @@ def classification_run(folder, f_load, f_cost, ftype='cost'):
     pcorrect = correct / float(n_test)  # Python 2.x ensure float division
     perror = 1.0 - pcorrect
     return perror * 100
-
 
 def modified_hausdorf_distance(itemA, itemB):
     # Modified Hausdorff Distance
