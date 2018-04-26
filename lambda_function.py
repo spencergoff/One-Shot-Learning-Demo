@@ -32,6 +32,21 @@ def lambda_handler(event, context):
     collection = s3.Bucket(bucket)
     i = 0
 
+    #delete any existing contents of /temp/ training
+    if os.path.exists('/tmp/all_runs/run01/training/'):
+        for file in os.listdir('/tmp/all_runs/run01/training/'):
+            filename = '/tmp/all_runs/run01/training/' + str(file)
+            print('removing from tmp: ' + filename)
+            os.remove(filename)
+
+    #delete any existing contests of /tmp/ searching
+    if os.path.exists('/tmp/all_runs/run01/test/'):
+        for file in os.listdir('/tmp/all_runs/run01/test/'):
+            filename = '/tmp/all_runs/run01/test/' + str(file)
+            print('removing from tmp: ' + filename)
+            os.remove(filename)
+
+    #create the necessary directories in tmp
     if not os.path.exists('/tmp/all_runs/run01/training/'):
         os.makedirs('/tmp/all_runs/run01/training/') #creates a directory in tmp (only exists during runtime) for the user's collection
     if not os.path.exists('/tmp/all_runs/run01/test/'):
@@ -41,35 +56,42 @@ def lambda_handler(event, context):
     path_to_all_runs = os.path.join(path_to_script_dir, 'all_runs')
     file_t = open('/tmp/all_runs/run01/class_labels.txt', 'w+') #creates the file
 
-    #downloads the user's collection
-    for image in collection.objects.filter(Prefix='public/{}/gray'.format(user)):
-        print('found a training (collection) image')
-        if i == 0: #needed to fix a bug that doesn't pull a valid image on the first run
-            print('continuing in collection')
-            i = i + 1
-            continue
-        training_location = '/tmp/all_runs/run01/training/{}.jpg'.format(i)
-        s3.meta.client.download_file(bucket, image.key, training_location)
-        print('image.key: ' + str(image.key))
-        train_files.append(training_location) #(str(image.key)[7:])
-        i = i + 1
-        if os.path.isfile(training_location):
-            print('Downloaded ' + image.key + ' to ' + training_location)
-        else:
-            print('Failed to download ' + image.key + ' for training')
-
     i = 0
+    training_location = ''
+    train_files = []
+    print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    #downloads the user's COLLECTION (don't confuse with search)
+    for image in collection.objects.filter(Prefix='public/{}/gray'.format(user)):
+        if str(image.key).endswith('.jpg'):
+            training_location = '/tmp/all_runs/run01/training/{}.jpg'.format(i)
+            if training_location not in train_files:
+                for f in train_files:
+                    print('train_file: ' + str(f))
+                print('appending ' + str(image.key) + ' to train_files as ' + training_location)
+                train_files.append(str(training_location))
+                s3.meta.client.download_file(bucket, image.key, training_location)
+                if os.path.isfile(training_location):
+                    print('Downloaded ' + image.key + ' to ' + training_location)
+                    i = i + 1
+                else:
+                    print('Failed to download ' + image.key + ' for training')
 
-    #downloads the image(s) to classify/search
-    for image in collection.objects.filter(Prefix='public/search-images'):
-        if i == 0: #needed to fix a bug that doesn't pull a valid image on the first run
-            print('continuing in searching')
-            i = i + 1
+    print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    print('len(train_files) immediately after download: ' + str(len(train_files)))
+    for f in train_files:
+        print('train_file: ' + str(f))
+
+    test_files = []
+    #downloads the image(s) to SEARCH (don't confuse with collection)
+    for image in collection.objects.filter(Prefix='public/search-images/{}'.format(user)):
+        if image.key == '/' or str(image.key).endswith('example-user-1.jpg') or str(image.key).endswith('example-user-2.jpg') \
+         or str(image.key).endswith('example-user-3.jpg'): #example-user-_.jpg are for testing purposes
+            print('continuing...')
             continue
         s3.meta.client.download_file(bucket, image.key, testing_location) #downloads the image to be classified (searched)
-        if str(image.key).endswith('.jpg'):
-            test_files.append(str(image.key))
-        i = i + 1
+        if str(image.key).endswith('.jpg') and testing_location not in test_files:
+            print('appending ' + str(image.key) + 'to test_files')
+            test_files.append(testing_location)
         if os.path.isfile(testing_location):
             print('Downloaded ' + image.key + ' to ' + testing_location)
         else:
@@ -86,9 +108,7 @@ def lambda_handler(event, context):
                                        load_img_as_points,
                                        modified_hausdorf_distance,
                                        'cost')
-        #print('\nrun {:02d} (error {:.1f}%)'.format(r, perror[r]))
     total = np.mean(perror)
-    #print('Average error {:.1f}%'.format(total))
 
     file.close()
     real_classifcation_result = ''
@@ -105,7 +125,7 @@ def lambda_handler(event, context):
 
     #iterate through the s3 bucket until i = index_of_classification_in_lambd, then return that image's path
     for i, image in enumerate(collection.objects.filter(Prefix='public/{}'.format(user))):
-        if i == index_of_classification_in_lambd:
+        if i == index_of_classification_in_lambd+1:
             real_classifcation_result = str(image.key)
             if user != 'example-user': #for testing purposes
                 path = 'public/search-images/{}.jpg'.format(user)
@@ -136,6 +156,8 @@ def classification_run(folder, f_load, f_cost, ftype='cost'):
     global test_files
     global testing_location
 
+    print('made it to classification_run')
+
     with open(os.path.join(path_to_all_runs, folder, fname_label)) as f:
         pairs = [line.split() for line in f.readlines()]
 
@@ -146,9 +168,13 @@ def classification_run(folder, f_load, f_cost, ftype='cost'):
     test_files = sorted(test_files)
     train_files = sorted(train_files)
     n_train = len(train_files)
-    n_test = len(train_files) #NOTE try to change back to test_files
+    n_test = len(test_files)
 
-    # Load the images (and, if needed, extract features)
+    print('len(test_files): ' + str(len(test_files)))
+    print('len(train_files): ' + str(len(train_files)))
+    for f in train_files:
+        print('train_file: ' + str(f))
+
     train_items = [f_load(os.path.join(path_to_all_runs, f))
                    for f in train_files]
     for file in test_files:
@@ -164,11 +190,13 @@ def classification_run(folder, f_load, f_cost, ftype='cost'):
     #print('test_items: ' + str(test_items))
 
     # Compute cost matrix
+    i = 0
     costM = np.zeros((n_test, n_train))
     for i, test_i in enumerate(test_items):
         for j, train_j in enumerate(train_items):
             print('adding to costM')
             costM[i, j] = f_cost(test_i, train_j)
+            print('costM[i, j]' + str(costM[i, j]))
     if ftype == 'cost':
 
         y_hats = np.argmin(costM, axis=1) #the indices of the smallest values in each row; axis 1 runs horizonally accross columns
@@ -217,13 +245,10 @@ def load_img_as_points(filename):
     # Output:
     #  D : [n x 2] rows are coordinates
     #
-    print('loading image as points...')
+    print('loading image as points: ' + str(filename))
     I = imread(filename, flatten=True)
     # Convert to boolean array and invert the pixel values
     I = ~np.array(I, dtype=np.bool)
     # Create a new array of all the non-zero element coordinates
     D = np.array(I.nonzero()).T
     return D - D.mean(axis=0)
-
-#event = {'user':'example-user'}
-#lambda_handler(event, '')
